@@ -28,7 +28,7 @@ ecr.describe_repositories.repositories.each do |repo|
       details.each do |detail|
         puts detail.image_pushed_at
 
-        if detail.image_pushed_at.to_time.to_date > Date.today - days ||= default_days
+        if detail.image_pushed_at.to_time.to_date > Date.today - days.to_i ||= default_days
           puts "Purged non outdated images: #{detail.image_digest}"
 
           images_to_delete.delete(detail.image_digest)
