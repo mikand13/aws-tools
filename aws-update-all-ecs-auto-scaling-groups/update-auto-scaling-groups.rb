@@ -160,7 +160,7 @@ module NannoqTools
         new_size = current_desired * 2
         increase_max = new_size > current_max
 
-        printf "Suspending scaling processes in: #{as_name}!"
+        printf "Suspending scaling processes in: #{as_name}!\n"
 
         client.suspend_processes({
             auto_scaling_group_name: as_name,
