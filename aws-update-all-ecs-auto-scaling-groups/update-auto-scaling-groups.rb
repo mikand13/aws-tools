@@ -42,7 +42,7 @@ module NannoqTools
 
           new_ami = get_newest_image
 
-          #if ami != new_ami
+          if ami != new_ami
             printf "Old AMI is: #{ami}\n"
             printf "Old Instance Type is: #{instance_type}\n"
             printf "Old Launch Config User data is: #{user_data}\n"
@@ -112,9 +112,9 @@ module NannoqTools
 
               printf "Deleting new launch configuration: #{new_launch_configuration_name}\n"
             end
-          #else
-          #printf "Old AMI (#{ami}) does not differ from new AMI (#{new_ami})!"
-          #end
+          else
+            printf "Old AMI (#{ami}) does not differ from new AMI (#{new_ami})!"
+          end
         end
       end
 
