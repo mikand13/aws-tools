@@ -47,7 +47,7 @@ module NannoqTools
             printf "Old Instance Type is: #{instance_type}\n"
             printf "Old Launch Config User data is: #{user_data}\n"
 
-            printf "New AMI is: #{new_ami}"
+            printf "New AMI is: #{new_ami}\n"
 
             printf "Creating new launch configuration for: #{as_name}\n"
 
@@ -70,7 +70,7 @@ module NannoqTools
 
               if group.instances.count > 0
                 if cycle_auto_scaling_group(client: auto_scaling_client,
-                                            group: group,
+                                            group: get_group(client: auto_scaling_client, name: as_name),
                                             old_lc_name: launch_config_name,
                                             new_lc_name: new_launch_configuration_name)
                   printf "Update Complete for #{as_name}!\n\n"
@@ -97,6 +97,17 @@ module NannoqTools
                  min_size: as_mins,
                  max_size: as_maxs,
                  desired_capacity: as_dc
+              })
+
+              printf "Set reset on #{as_name}, terminating...\n"
+
+              verify_healthy_and_count(client: client, name: as_name, count: as_dc)
+
+              printf "Resuming scaling operations on #{name}\n"
+
+              client.resume_processes({
+                  auto_scaling_group_name: as_name,
+                  scaling_processes: %w(ReplaceUnhealthy AZRebalance AlarmNotification ScheduledActions)
               })
 
               printf "Deleting new launch configuration: #{new_launch_configuration_name}\n"
@@ -149,13 +160,20 @@ module NannoqTools
         new_size = current_desired * 2
         increase_max = new_size > current_max
 
+        printf "Suspending scaling processes in: #{as_name}!"
+
+        client.suspend_processes({
+            auto_scaling_group_name: as_name,
+            scaling_processes: %w(ReplaceUnhealthy AZRebalance AlarmNotification ScheduledActions)
+        })
+
         printf "Will temporarily increase group to size: #{new_size} for blue/green deployment...\n"
 
         client.update_auto_scaling_group({
-           auto_scaling_group_name: as_name,
-           default_cooldown: 6000,
-           desired_capacity: 4,
-           max_size: increase_max ? new_size : group.max_size
+            auto_scaling_group_name: as_name,
+            default_cooldown: 6000,
+            desired_capacity: 4,
+            max_size: increase_max ? new_size : group.max_size
         })
 
         printf "Set scaling on #{as_name}!\n"
@@ -175,7 +193,6 @@ module NannoqTools
         printf "Resetting old values on scaling group: #{as_name}\n"
 
         reset_scaling_group(client: client, name: as_name, orig_max: current_max, orig_desired: current_desired, orig_cooldown: current_default_cooldown)
-        verify_healthy_and_count(client: client, name: as_name, count: current_desired)
 
         printf "Auto-Scaling group #{as_name} is healthy!\n"
 
@@ -191,10 +208,6 @@ module NannoqTools
         printf "Deleting new launch configuration: #{new_lc_name}\n"
 
         reset_scaling_group(client: client, name: as_name, orig_max: current_max, orig_desired: current_desired, orig_cooldown: current_default_cooldown)
-
-        printf "Set reset on #{as_name}, terminating...\n"
-
-        verify_healthy_and_count(client: client, name: as_name, count: current_desired)
 
         printf "Auto-Scaling group #{as_name} is healthy!\n"
 
@@ -240,7 +253,7 @@ module NannoqTools
       until drained
         updated_instances = container_instances(client: ecs_client, container_arns: container_instance_arns)
         drained = updated_instances.all? do |i|
-          if i.running_tasks_count == 0
+          if i.running_tasks_count == 0 && i.lifecycle_state.eql?('InService')
             client.terminate_instance_in_auto_scaling_group({
                 instance_id: i.ec2_instance_id,
                 should_decrement_desired_capacity: true,
@@ -328,6 +341,17 @@ module NannoqTools
          desired_capacity: orig_desired,
          max_size: orig_max
       })
+
+      printf "Set reset on #{name}\n"
+
+      verify_healthy_and_count(client: client, name: name, count: orig_desired)
+
+      printf "Resuming scaling operations on #{name}\n"
+
+      client.resume_processes({
+          auto_scaling_group_name: name,
+          scaling_processes: %w(ReplaceUnhealthy AZRebalance AlarmNotification ScheduledActions)
+      })
     end
 
     def get_group(client:, name:)
@@ -337,7 +361,7 @@ module NannoqTools
     def container_instances_for_group(group:)
       ecs_client = Aws::ECS::Client.new(region: @region)
 
-      group_instance_ids = group.instances.map { |i| i.instance_id}
+      group_instance_ids = group.instances.map { |i| i.instance_id }
       instance_arns = []
 
       ecs_client.list_clusters.cluster_arns.each do |c|
