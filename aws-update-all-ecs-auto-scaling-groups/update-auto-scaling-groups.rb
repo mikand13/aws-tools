@@ -113,7 +113,7 @@ module NannoqTools
               printf "Deleting new launch configuration: #{new_launch_configuration_name}\n"
             end
           else
-            printf "Old AMI (#{ami}) does not differ from new AMI (#{new_ami})!"
+            printf "Old AMI (#{ami}) does not differ from new AMI (#{new_ami})!\n"
           end
         end
       end
