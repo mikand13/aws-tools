@@ -1,2 +1,2 @@
-# norigintube-aws-scripts
+# aws-tools
 Various scripts for doing aws tasks
