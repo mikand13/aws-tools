@@ -7,14 +7,15 @@ def get_newest_image
                                                  filters: [
                                                      {
                                                          name:'name',
-                                                         values: ['amzn-ami-2017.03.f-amazon-ecs-optimized'],
+                                                         values: ['amzn-ami-*-amazon-ecs-optimized'],
                                                      },
                                                  ],
                                                  owners: ['amazon'],
                                                  dry_run: false,
                                              })
 
-  newest_ami = images_result.images[0].image_id
+  images = images_result.images.sort_by { |x| Time.parse(x.creation_date) }.reverse
+  newest_ami = images[0].image_id
 
   puts "New ECS AMI is: #{newest_ami}"
 
