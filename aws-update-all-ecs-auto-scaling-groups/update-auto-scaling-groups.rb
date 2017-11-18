@@ -5,12 +5,13 @@ require 'concurrent'
 
 module NannoqTools
   class AutoScalingAMICycling
-    attr_accessor :region
+    attr_accessor :region, :tag
 
     def initialize(options)
       return nil unless options.class == Hash
 
       @region = options[:region]
+      @tag = options[:tag]
     end
 
     def cycle_servers
@@ -404,4 +405,4 @@ module NannoqTools
   end
 end
 
-NannoqTools::AutoScalingAMICycling::new({region: 'eu-west-1'}).cycle_servers
+NannoqTools::AutoScalingAMICycling::new({region: 'eu-west-1', tag: { key: 'vertx', value: 'cluster'}}).cycle_servers
