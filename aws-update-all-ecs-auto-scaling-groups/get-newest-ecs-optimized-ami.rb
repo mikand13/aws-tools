@@ -1,7 +1,7 @@
 require 'aws-sdk'
 
-def get_newest_image
-  ec2_client = Aws::EC2::Client.new(region: 'eu-west-1')
+def get_newest_image(region:)
+  ec2_client = Aws::EC2::Client.new(region: region)
 
   images_result = ec2_client.describe_images({
                                                  filters: [
