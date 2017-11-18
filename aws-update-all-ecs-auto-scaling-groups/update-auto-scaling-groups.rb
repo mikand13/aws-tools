@@ -40,7 +40,7 @@ module NannoqTools
           instance_type = old_launch_config.instance_type
           user_data = old_launch_config.user_data
 
-          new_ami = get_newest_image
+          new_ami = get_newest_image(region: @region)
 
           if ami != new_ami
             printf "Old AMI is: #{ami}\n"
