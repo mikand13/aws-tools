@@ -120,9 +120,9 @@ module NannoqTools
             printf "Old AMI (#{ami}) does not differ from new AMI (#{new_ami})!\n"
           end
         end
-      end
       else
         printf "No corresponding tag found on #{group.auto_scaling_group_name} for #{@tag[:key]}"
+      end
       end
 
       thread_pool.shutdown
