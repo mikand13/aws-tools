@@ -12,6 +12,8 @@ module NannoqTools
 
       @region = options[:region]
       @tag = options[:tag]
+      
+      return nil unless @tag.class == Hash && !@tag[:key].nil? && !@tag[:value].nil?
     end
 
     def cycle_servers
@@ -20,6 +22,7 @@ module NannoqTools
       auto_scaling_client = Aws::AutoScaling::Client.new(region: @region)
 
       auto_scaling_client.describe_auto_scaling_groups.auto_scaling_groups.each do |group|
+        if group.tags.count > 0 && group.tags.any? { |tag| tag.key.eql?(@tag[:key]) && tag.value.eql?(@tag[:value]) }
         thread_pool.post do
           as_name = group.auto_scaling_group_name
 
@@ -117,6 +120,9 @@ module NannoqTools
             printf "Old AMI (#{ami}) does not differ from new AMI (#{new_ami})!\n"
           end
         end
+      end
+      else
+        printf "No corresponding tag found on #{group.auto_scaling_group_name} for #{@tag[:key]}"
       end
 
       thread_pool.shutdown
