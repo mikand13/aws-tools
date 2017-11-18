@@ -249,11 +249,13 @@ module NannoqTools
       end
 
       drained = false
+      
+      auto_scaling_client = Aws::AutoScaling::Client.new(region: @region)
 
       until drained
         updated_instances = container_instances(client: ecs_client, container_arns: container_instance_arns)
         drained = updated_instances.all? do |i|
-          if i.running_tasks_count == 0 && i.lifecycle_state.eql?('InService')
+          if i.running_tasks_count == 0 && is_in_service(client: auto_scaling_client, id: i.ec2_instance_id)
             client.terminate_instance_in_auto_scaling_group({
                 instance_id: i.ec2_instance_id,
                 should_decrement_desired_capacity: true,
@@ -274,6 +276,15 @@ module NannoqTools
       end
 
       drained
+    end
+    
+    def is_in_service(client:, id:)
+      resp = client.describe_auto_scaling_instances({ 
+        instance_ids: [ id ],
+        max_records: 1
+      })
+      
+      resp.auto_scaling_instances[0].lifecycle_state.eql?('InService')
     end
 
     def container_instances(client:, container_arns:)
