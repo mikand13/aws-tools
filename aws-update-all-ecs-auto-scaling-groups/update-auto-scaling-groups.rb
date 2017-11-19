@@ -13,7 +13,7 @@ module NannoqTools
       @region = options[:region]
       @tag = options[:tag]
       
-      return nil unless @tag.class == Hash && !@tag[:key].nil? && !@tag[:value].nil?
+      nil unless @tag.class == Hash && @tag.all? { |key, value| !key.nil? && !value.nil? }
     end
 
     def cycle_servers
@@ -22,113 +22,117 @@ module NannoqTools
       auto_scaling_client = Aws::AutoScaling::Client.new(region: @region)
 
       auto_scaling_client.describe_auto_scaling_groups.auto_scaling_groups.each do |group|
-        if group.tags.count > 0 && group.tags.any? { |tag| tag.key.eql?(@tag[:key]) && tag.value.eql?(@tag[:value]) }
-        thread_pool.post do
-          as_name = group.auto_scaling_group_name
+        if is_tagged(group: group)
+          thread_pool.post do
+            as_name = group.auto_scaling_group_name
 
-          as_mins = group.min_size
-          as_maxs = group.max_size
-          as_dc = group.desired_capacity
-          launch_config_name = group.launch_configuration_name
+            as_mins = group.min_size
+            as_maxs = group.max_size
+            as_dc = group.desired_capacity
+            launch_config_name = group.launch_configuration_name
 
-          printf "Name is: #{as_name}\n"
-          printf "Min Size is: #{as_mins}\n"
-          printf "Max Size is: #{as_maxs}\n"
-          printf "Desired Size is: #{as_dc}\n"
-          printf "Launch Config Name is: #{launch_config_name}\n"
+            printf "Name is: #{as_name}\n"
+            printf "Min Size is: #{as_mins}\n"
+            printf "Max Size is: #{as_maxs}\n"
+            printf "Desired Size is: #{as_dc}\n"
+            printf "Launch Config Name is: #{launch_config_name}\n"
 
-          search_param = {launch_configuration_names: [launch_config_name]}
-          old_launch_config = auto_scaling_client.describe_launch_configurations(search_param).data
-                                  .launch_configurations.first
-          ami = old_launch_config.image_id
-          instance_type = old_launch_config.instance_type
-          user_data = old_launch_config.user_data
+            search_param = {launch_configuration_names: [launch_config_name]}
+            old_launch_config = auto_scaling_client.describe_launch_configurations(search_param).data
+                                    .launch_configurations.first
+            ami = old_launch_config.image_id
+            instance_type = old_launch_config.instance_type
+            user_data = old_launch_config.user_data
 
-          new_ami = get_newest_image(region: @region)
+            new_ami = get_newest_image(region: @region)
 
-          if ami != new_ami
-            printf "Old AMI is: #{ami}\n"
-            printf "Old Instance Type is: #{instance_type}\n"
-            printf "Old Launch Config User data is: #{user_data}\n"
+            if ami != new_ami
+              printf "Old AMI is: #{ami}\n"
+              printf "Old Instance Type is: #{instance_type}\n"
+              printf "Old Launch Config User data is: #{user_data}\n"
 
-            printf "New AMI is: #{new_ami}\n"
+              printf "New AMI is: #{new_ami}\n"
 
-            printf "Creating new launch configuration for: #{as_name}\n"
+              printf "Creating new launch configuration for: #{as_name}\n"
 
-            new_config = new_launch_config(old_config: old_launch_config, new_ami: new_ami)
-            new_launch_configuration_name = new_config[:launch_configuration_name]
+              new_config = new_launch_config(old_config: old_launch_config, new_ami: new_ami)
+              new_launch_configuration_name = new_config[:launch_configuration_name]
 
-            printf "New Launch Configuration is: #{new_launch_configuration_name}\n"
+              printf "New Launch Configuration is: #{new_launch_configuration_name}\n"
 
-            auto_scaling_client.create_launch_configuration(new_config)
+              auto_scaling_client.create_launch_configuration(new_config)
 
-            printf "Updating #{as_name} with new launch config #{new_launch_configuration_name}!\n"
+              printf "Updating #{as_name} with new launch config #{new_launch_configuration_name}!\n"
 
-            begin
-              auto_scaling_client.update_auto_scaling_group({
-                  auto_scaling_group_name: as_name,
-                  launch_configuration_name: new_launch_configuration_name
-              })
+              begin
+                auto_scaling_client.update_auto_scaling_group({
+                    auto_scaling_group_name: as_name,
+                    launch_configuration_name: new_launch_configuration_name
+                })
 
-              printf "Set configuration on #{as_name} with new launch config #{new_launch_configuration_name}!\n"
+                printf "Set configuration on #{as_name} with new launch config #{new_launch_configuration_name}!\n"
 
-              if group.instances.count > 0
-                if cycle_auto_scaling_group(client: auto_scaling_client,
-                                            group: get_group(client: auto_scaling_client, name: as_name),
-                                            old_lc_name: launch_config_name,
-                                            new_lc_name: new_launch_configuration_name)
-                  printf "Update Complete for #{as_name}!\n\n"
+                if group.instances.count > 0
+                  if cycle_auto_scaling_group(client: auto_scaling_client,
+                                              group: get_group(client: auto_scaling_client, name: as_name),
+                                              old_lc_name: launch_config_name,
+                                              new_lc_name: new_launch_configuration_name)
+                    printf "Update Complete for #{as_name}!\n\n"
+                  else
+                    printf "Cycling failed for #{as_name}!\n\n"
+                  end
                 else
-                  printf "Cycling failed for #{as_name}!\n\n"
+                  printf "Deleting old launch configuration: #{launch_config_name}\n"
+
+                  auto_scaling_client.delete_launch_configuration({launch_configuration_name: launch_config_name})
+
+                  printf "#{as_name} has no instances, update complete!\n"
                 end
-              else
-                printf "Deleting old launch configuration: #{launch_config_name}\n"
+              rescue  Exception => e
+                printf "#{e.message}\n"
+                printf "#{e.backtrace.inspect}\n"
 
-                auto_scaling_client.delete_launch_configuration({launch_configuration_name: launch_config_name})
+                printf "Error encountered in #{as_name} when setting new launch configuration, deleting and resetting group!\n"
 
-                printf "#{as_name} has no instances, update complete!\n"
+                client.delete_launch_configuration({launch_configuration_name: new_launch_configuration_name})
+                client.update_auto_scaling_group({
+                   auto_scaling_group_name: as_name,
+                   launch_configuration_name: launch_config_name,
+                   min_size: as_mins,
+                   max_size: as_maxs,
+                   desired_capacity: as_dc
+                })
+
+                printf "Set reset on #{as_name}, terminating...\n"
+
+                verify_healthy_and_count(client: client, name: as_name, count: as_dc)
+
+                printf "Resuming scaling operations on #{name}\n"
+
+                client.resume_processes({
+                    auto_scaling_group_name: as_name,
+                    scaling_processes: %w(ReplaceUnhealthy AZRebalance AlarmNotification ScheduledActions)
+                })
+
+                printf "Deleting new launch configuration: #{new_launch_configuration_name}\n"
               end
-            rescue  Exception => e
-              printf "#{e.message}\n"
-              printf "#{e.backtrace.inspect}\n"
-
-              printf "Error encountered in #{as_name} when setting new launch configuration, deleting and resetting group!\n"
-
-              client.delete_launch_configuration({launch_configuration_name: new_launch_configuration_name})
-              client.update_auto_scaling_group({
-                 auto_scaling_group_name: as_name,
-                 launch_configuration_name: launch_config_name,
-                 min_size: as_mins,
-                 max_size: as_maxs,
-                 desired_capacity: as_dc
-              })
-
-              printf "Set reset on #{as_name}, terminating...\n"
-
-              verify_healthy_and_count(client: client, name: as_name, count: as_dc)
-
-              printf "Resuming scaling operations on #{name}\n"
-
-              client.resume_processes({
-                  auto_scaling_group_name: as_name,
-                  scaling_processes: %w(ReplaceUnhealthy AZRebalance AlarmNotification ScheduledActions)
-              })
-
-              printf "Deleting new launch configuration: #{new_launch_configuration_name}\n"
+            else
+              printf "Old AMI (#{ami}) does not differ from new AMI (#{new_ami})!\n"
             end
-          else
-            printf "Old AMI (#{ami}) does not differ from new AMI (#{new_ami})!\n"
           end
+        else
+          printf "No corresponding tag found on #{group.auto_scaling_group_name} for #{@tag}!\n"
         end
-      else
-        printf "No corresponding tag found on #{group.auto_scaling_group_name} for #{@tag[:key]}"
-      end
       end
 
       thread_pool.shutdown
       thread_pool.wait_for_termination
 
       printf "Completed cycling of all auto-scaling-groups...\n"
+    end
+
+    def is_tagged(group:)
+      group.tags.count > 0 and group.tags.any? { |tag| tag.key.eql?(@tag[:key]) and tag.value.eql?(@tag[:value]) }
     end
 
     def new_launch_config(old_config:, new_ami:)
@@ -189,7 +193,7 @@ module NannoqTools
           printf "#{as_name} is healthy and ready for cycling!\n"
 
           unless drain_and_kill_old_instances(client: client, group: group)
-            decrement_group_sequentially(client: client, group: group, new_size: new_size, desired: current_desired, max: current_max)
+            decrement_group_sequentially(client: client, group: group, scaled_size: new_size, old_desired: current_desired, old_max: current_max)
           end
         end
 
@@ -232,7 +236,7 @@ module NannoqTools
         current_count = updated_group.instances.count
 
         unless current_count >= new_size
-          printf "Waiting for #{as_name} to scale up instances...\n"
+          printf "Waiting for #{as_name} to scale up instances... (#{current_count}/#{new_size})\n"
           sleep(10)
         end
       end
@@ -256,13 +260,13 @@ module NannoqTools
       end
 
       drained = false
-      
+
       auto_scaling_client = Aws::AutoScaling::Client.new(region: @region)
 
       until drained
         updated_instances = container_instances(client: ecs_client, container_arns: container_instance_arns)
         drained = updated_instances.all? do |i|
-          if i.running_tasks_count == 0 && is_in_service(client: auto_scaling_client, id: i.ec2_instance_id)
+          if is_ready_for_termination(instance: i, client: auto_scaling_client)
             client.terminate_instance_in_auto_scaling_group({
                 instance_id: i.ec2_instance_id,
                 should_decrement_desired_capacity: true,
@@ -284,13 +288,21 @@ module NannoqTools
 
       drained
     end
-    
+
+    def is_ready_for_termination(instance:, client:)
+      is_draining_and_empty(instance: instance) and is_in_service(client: client, id: instance.ec2_instance_id)
+    end
+
+    def is_draining_and_empty(instance:)
+      instance.running_tasks_count == 0 and instance.status.eql?('DRAINING')
+    end
+
     def is_in_service(client:, id:)
-      resp = client.describe_auto_scaling_instances({ 
+      resp = client.describe_auto_scaling_instances({
         instance_ids: [ id ],
         max_records: 1
       })
-      
+
       resp.auto_scaling_instances[0].lifecycle_state.eql?('InService')
     end
 
@@ -337,10 +349,12 @@ module NannoqTools
     def verify_healthy_and_count(client:, name:, count:)
       all_instances_healthy = false
 
+      auto_scaling_client = Aws::AutoScaling::Client.new(region: @region)
+
       until all_instances_healthy
         updated_group = get_group(client: client, name: name)
         all_instances_healthy = updated_group.instances.all? {
-            |i| i.health_status.eql?('Healthy') && i.lifecycle_state.eql?('InService')
+            |i| i.health_status.eql?('Healthy') && is_in_service(client: auto_scaling_client, id: i.instance_id)
         } && updated_group.instances.count == count
 
         unless all_instances_healthy
@@ -411,4 +425,4 @@ module NannoqTools
   end
 end
 
-NannoqTools::AutoScalingAMICycling::new({region: 'eu-west-1', tag: { key: 'vertx', value: 'cluster'}}).cycle_servers
+NannoqTools::AutoScalingAMICycling::new({region: 'eu-west-1', tag: { key: 'cluster', value: 'vertx'}}).cycle_servers
