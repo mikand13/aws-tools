@@ -15,6 +15,8 @@ This is a tool for deleting old images from the ECS Container Registry (ECR). It
 
 This is a tool for updating all autoscaling groups with the most current ECS Optimized AMI. It will scan all auto-scaling groups, create updated launch configurations, and replace all vms while ensuring that all vms are properly drained in ECS to ensure a blue/green deployment of the containers on the autoscaling group. It will then kill all old vms. It bases updates on updating the most current launch configuration, so you can still make changes and update autoscaling groups manually without impacting this script.
 
+Accepts a region parameter for what region to perform the task on, and a hash of tags to differentiate the groups you want to update.
+
 ### Steps
 
 1. cd aws-update-all-ecs-auto-scaling-groups
